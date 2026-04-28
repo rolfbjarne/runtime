@@ -85,6 +85,13 @@ using Mono.Linker.Tests.Cases.Reflection.Dependencies.Library;
 [assembly: TypeMapAssemblyTarget<UsedTypeMapUniverse>("library")]
 [assembly: TypeMapAssemblyTarget<UnusedTypeMap2>("library")] // Should be removed
 
+// Verify that a TypeMap entry with trimTarget=X is kept when X is also the proxy target of a TypeMapAssociation.
+// The proxy association's MarkInstantiated(X) must not prevent ProcessType(X) from being called for the external TypeMap entry.
+[assembly: TypeMap<UsedTypeMap>("ProxyTargetIsAlsoTrimTarget", typeof(ProxyTargetIsAlsoTrimTargetTarget), typeof(ProxyTargetIsAlsoTrimTarget))] // Kept (bug: currently trimmed)
+[assembly: TypeMapAssociation<UsedTypeMap>(typeof(ProxyTargetIsAlsoTrimTargetSource), typeof(ProxyTargetIsAlsoTrimTarget))] // Kept
+[assembly: KeptAttributeAttribute(typeof(TypeMapAttribute<UsedTypeMap>), "ProxyTargetIsAlsoTrimTarget", typeof(ProxyTargetIsAlsoTrimTargetTarget), typeof(ProxyTargetIsAlsoTrimTarget))]
+[assembly: KeptAttributeAttribute(typeof(TypeMapAssociationAttribute<UsedTypeMap>), typeof(ProxyTargetIsAlsoTrimTargetSource), typeof(ProxyTargetIsAlsoTrimTarget))]
+
 namespace Mono.Linker.Tests.Cases.Reflection
 {
     [SetupLinkerAction("link", "System.Private.CoreLib")] // Needed to get the RemoveAttributeInstances in embedded xml
@@ -234,6 +241,13 @@ namespace Mono.Linker.Tests.Cases.Reflection
             _ = new int();
             _ = TypeMapping.GetOrCreateExternalTypeMapping<string>();
             _ = TypeMapping.GetOrCreateProxyTypeMapping<string>();
+
+            // Use ProxyTargetIsAlsoTrimTarget — the newobj should trigger ProcessType,
+            // but MarkInstantiated from the proxy association poisons the IsInstantiated check.
+            // Source must be instantiated BEFORE the trim target, so that the proxy association
+            // is marked first, calling MarkInstantiated on ProxyTargetIsAlsoTrimTarget.
+            _ = new ProxyTargetIsAlsoTrimTargetSource();
+            Console.WriteLine(new ProxyTargetIsAlsoTrimTarget());
         }
 
         [ExpectBodyModified]
@@ -572,4 +586,18 @@ namespace Mono.Linker.Tests.Cases.Reflection
     class ArrayTypeTrimTargetUnusedTarget;
 
     class ArrayTypeTrimTargetUnusedClass;
+
+    // ProxyTargetIsAlsoTrimTarget is both:
+    // - The proxy target (arg[1]) of a TypeMapAssociation
+    // - The trimTarget (arg[2]) of a TypeMap entry
+    // Bug: MarkInstantiated from the proxy association prevents ProcessType from running,
+    // causing the external TypeMap entry to be incorrectly trimmed.
+    [Kept]
+    [KeptMember(".ctor()")]
+    class ProxyTargetIsAlsoTrimTarget;
+    [Kept]
+    class ProxyTargetIsAlsoTrimTargetTarget;
+    [Kept]
+    [KeptMember(".ctor()")]
+    class ProxyTargetIsAlsoTrimTargetSource;
 }
